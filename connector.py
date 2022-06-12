@@ -30,13 +30,18 @@ class Connector:
         try:
             sock.connect((addr, port))
         except OSError as e:
-            # We expect a non-blocking socket to initially fail.
-            # Later fails will be caught in selector loop when socket reads and writes fail
-            if e.errno != Connector.EINPROGRESS:
+            if e.errno == Connector.EINPROGRESS:
+                # A non-blocking socket can initially fail.
+                # Later fails will be caught in selector loop when socket reads and writes fail
+                # So it's ok to carry on here and configure the protocol
+                protocol._connection_created(self, self.selector, sock, on_failure)
+            else:
                 logger.warning(f"Unexpected error creating socket: {e}")
+                on_failure()
+        else:
+            # No exception: configure protocol with connector, selector and socket
+            protocol._connection_created(self, self.selector, sock, on_failure)
 
-        # Configure protocol with connector, selector and socket
-        protocol._connection_created(self, self.selector, sock, on_failure)
 
     def create_server(self, interface, port, protocol_factory):
         """Create a server for processing network events.

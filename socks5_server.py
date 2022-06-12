@@ -79,14 +79,22 @@ class Socks5Protocol(Protocol):
     def _parse_client_connection_request(self, data):
         try:
             remote_addr, remote_port, addr_type = Socks5.parse_connection_request(data)
-            # Call gethostbyname on connector, passing in callback once complete, to stop blocking other connections
             if addr_type == Socks5.ADDRESS_DOMAIN:
+                # Call gethostbyname on connector, passing in callback once complete, to stop blocking other connections
                 self._connector.gethostbyname(
                     remote_addr,
                     functools.partial(self._make_client_connection_request, remote_port=remote_port, hostname=remote_addr)
                 )
+            elif addr_type == Socks5.ADDRESS_IPV4:
+                if remote_addr == "0.0.0.0":
+                    # Weird bug where firefox asks for IPv4 connection to 0.0.0.0.
+                    logger.debug(f"parse_client_connection_request:0.0.0.0:refused")
+                    self.remote_connection_failure()
+                else:
+                    self._make_client_connection_request(remote_addr=remote_addr, remote_port=remote_port)
             else:
-                self._make_client_connection_request(remote_addr=remote_addr, remote_port=remote_port)
+                logger.debug("parse_client_connection_request:IPv6:unsupported")
+                self.remote_connection_failure()
         except ProtocolError as e:
             logger.warning(f"{self._sock.fileno()}:Error parsing connection request: {e}")
             self.close()
@@ -109,17 +117,24 @@ class Socks5Protocol(Protocol):
     def remote_connection_failure(self):
         # Get here via a failure of remote connection.
         # Need to return failure condition and close
-        logger.debug(f"{self._sock.fileno()}:remote_connection_failure")
-        addr, port = self.local_connection_parameters()
-        self.write(Socks5.connection_failure(addr, port))
+        logger.debug(f"{self._sock_id()}:remote_connection_failure")
+        try:
+            addr, port = self.local_connection_parameters()
+            self.write(Socks5.connection_failure(addr, port))
+        except ProtocolError:
+            pass
         self.closing()
 
     def remote_connection_success(self):
         # Remote connection has started - we can now proxy data
-        logger.debug(f"{self._sock.fileno()}:remote_connection_success")
-        addr, port = self.local_connection_parameters()
-        self.write(Socks5.connection_success(addr, port))
-        self._data_received_handler = self._proxy_data
+        logger.debug(f"{self._sock_id()}:remote_connection_success")
+        try:
+            addr, port = self.local_connection_parameters()
+            self.write(Socks5.connection_success(addr, port))
+            self._data_received_handler = self._proxy_data
+        except ProtocolError as e:
+            logger.debug("Error connecting protocol: {e}")
+            self.closing()
 
     def _null_data_received_handler(self, data):
         # This should never be called as we should only be in this state when

@@ -1,7 +1,9 @@
 import ipaddress
+import logging
 from errors import ProtocolError
 from ipaddress import ip_address
 
+logger = logging.getLogger(__name__)
 
 class Socks5:
     """Static methods for handling limited set of Socks5 protocol"""
