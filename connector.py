@@ -24,6 +24,7 @@ class Connector:
         addr -- the remote server address
         port -- the remote server port
         protocol -- the Protocol instance used to manage the connection
+        on_failure -- function to call if connection setup fails
         """
         sock = socket.socket()
         sock.setblocking(False)
@@ -37,7 +38,8 @@ class Connector:
                 protocol._connection_created(self, self.selector, sock, on_failure)
             else:
                 logger.warning(f"Unexpected error creating socket: {e}")
-                on_failure()
+                if on_failure is not None:
+                    on_failure()
         else:
             # No exception: configure protocol with connector, selector and socket
             protocol._connection_created(self, self.selector, sock, on_failure)
@@ -69,11 +71,11 @@ class Connector:
         # Create new protocol object to handle connection
         protocol = protocol_factory.create()
 
-        # Configure protocol with connector, se)result_handlerlector and socket
+        # Configure protocol with connector, selector and socket
         protocol._connection_created(self, self.selector, conn)
 
     def gethostbyname(self, hostname, callback):
-        """Non-blocking version of gethostbyname()
+        """Non-blocking version of gethostbyname() - need to use thread - yuk
 
         Arguments:
             hostname - hostname to look up

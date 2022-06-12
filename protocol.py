@@ -127,7 +127,7 @@ class Protocol:
         # Wait for socket to become writable, at which point we can check for success
         try:
             self._selector.register(
-                self._sock,
+                self._sock,result_handler
                 selectors.EVENT_WRITE,
                 functools.partial(self._connection_complete, on_failure=on_failure)
             )
