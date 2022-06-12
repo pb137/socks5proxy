@@ -27,6 +27,10 @@ class Protocol:
         self._connector = None
         self._selector = None
         self._sock = None
+        self._local_addr = ""
+        self._local_port = 0
+        self._peer_addr = ""
+        self._peer_port = 0
         self._write_buffer = bytearray()
         self._write_handler = None  # Called when application wants to write data to the network
         self._writer = None         # Called to write to network
@@ -60,7 +64,7 @@ class Protocol:
         """Signal connections should close after writing buffered data.
         If there is no data to write, the connection will be closed immediately"""
 
-        logger.debug(f"{self._sock_id()}:closing")
+        logger.debug(f"{self.sockid()}:closing")
         if len(self._write_buffer) == 0:
             # This will close socket and set handlers to closed state
             self._closer(self._sock)
@@ -70,26 +74,20 @@ class Protocol:
 
     def close(self):
         """Closes connection immediately without writing buffered data"""
-        logger.debug(f"{self._sock_id()}:close")
+        logger.debug(f"{self.sockid()}:close")
         self.closer(self._sock)
 
-    def local_connection_parameters(self):
+    def sockid(self):
+        """Return socket identifier string """
         if self._sock is None:
-            raise ProtocolError("local_connection_parameters called with null socket")
-        try:
-            (host, port) = self._sock.getsockname()
-            return host, port
-        except OSError as e:
-            raise ProtocolError("local_connection_parameters error: {e}")
+            return "None"
+        return self._sock.fileno()
 
-    def peer_connection_parameters(self):
-        if self._sock is None:
-            raise ProtocolError("peer_connection_parameters called with null socket")
-        try:
-            (host, port) = self._sock.getpeername()
-            return host, port
-        except OSError as e:
-            raise ProtocolError("local_connection_parameters error: {e}")
+    def local_connection_params(self):
+        return self._local_addr, self._local_port
+
+    def peer_connection_params(self):
+        return self._peer_addr, self._peer_port
 
     def _set_unconnected(self):
         """Called when a socket is started or closed. Prevents any attempts to read or write data
@@ -124,7 +122,7 @@ class Protocol:
         self._selector = selector
         self._sock = sock
 
-        logger.debug(f"{self._sock_id()}:connection_created")
+        logger.debug(f"{self.sockid()}:connection_created")
 
         # Wait for socket to become writable, at which point we can check for success
         try:
@@ -143,20 +141,19 @@ class Protocol:
         The socket could have connected, but it may have failed.
         A call to getpeername will detect if connection has failed.
         """
-        logger.debug(f"{self._sock_id()}:connection_complete")
+        logger.debug(f"{self.sockid()}:connection_complete")
 
         # Check our socket has been created and that we are connected by checking peername
         if self._sock is not None:
             try:
-                addr = self._sock.getpeername()
+                (self._peer_addr, self._peer_port) = self._sock.getpeername()
+                (self._local_addr, self._local_port) = self._sock.getsockname()
             except OSError as e:
-                logger.debug(f"Connection failed on peername lookup: {e}")
+                logger.debug(f"Connection failed on name lookup: {e}")
                 if on_failure is not None:
-                    logger.debug(f"{self._sock_id()}:calling on_failure")
+                    logger.debug(f"{self.sockid()}:calling on_failure")
                     on_failure()
             else:
-                logger.debug(f"{self._sock_id()}:Peername lookup good")
-
                 # Set handlers to deal with running connection
                 self._set_connected()
 
@@ -257,8 +254,3 @@ class Protocol:
         """Called when socket has already been closed. Prevents multiple close errors"""
         pass
 
-    def _sock_id(self):
-        """Return socket identifier string """
-        if self._sock is None:
-            return "None"
-        return self._sock.fileno()

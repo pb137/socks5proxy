@@ -42,38 +42,38 @@ class Socks5Protocol(Protocol):
             self._remote_server_protocol.closing()
 
     def _client_greeting(self, data):
-        logger.debug(f"{self._sock.fileno()}:client_greeting")
+        logger.debug(f"{self.sockid()}:client_greeting")
         try:
             auth_method, response = Socks5.handle_client_greeting(data)
             self.write(response)
             if auth_method == Socks5.NO_METHOD:
                 # Close socket after writing buffered data
-                logger.debug(f"{self._sock.fileno()}:client_greeting:no supported method")
+                logger.debug(f"{self.sockid()}:client_greeting:no supported method")
                 self.closing()
             elif auth_method == Socks5.NO_AUTH:
-                logger.debug(f"{self._sock.fileno()}:client_greeting:no auth")
+                logger.debug(f"{self.sockid()}:client_greeting:no auth")
                 self._data_received_handler = self._parse_client_connection_request
             elif auth_method == Socks5.USER_PWD:
-                logger.debug(f"{self._sock.fileno()}:client_greeting:username password")
+                logger.debug(f"{self.sockid()}:client_greeting:username password")
                 self._data_received_handler = self._username_password_authentication
         except ProtocolError as e:
-            logger.warning(f"{self._sock.fileno()}:Error parsing client greeting: {e}")
+            logger.warning(f"{self.sockid()}:Error parsing client greeting: {e}")
             self.close()
 
     def _username_password_authentication(self, data):
         try:
             username, password = Socks5.parse_username_password(data)
-            logger.debug(f"{self._sock.fileno()}:username_password_authentication:username:{username}:password:{password}")
+            logger.debug(f"{self.sockid()}:username_password_authentication:username:{username}:password:{password}")
             if self._authenticator.authenticate(username=username, password=password):
-                logger.debug(f"{self._sock.fileno()}:username_password_authentication:success")
+                logger.debug(f"{self.sockid()}:username_password_authentication:success")
                 self.write(Socks5.authentication_success())
                 self._data_received_handler = self._parse_client_connection_request
             else:
-                logger.debug(f"{self._sock.fileno()}:username_password_authentication:failure")
+                logger.debug(f"{self.sockid()}:username_password_authentication:failure")
                 self.write(Socks5.authentication_failure())
                 self.closing()
         except ProtocolError as e:
-            logger.warning(f"{self._sock.fileno()}:Error parsing authentication: {e}")
+            logger.warning(f"{self.sockid()}:Error parsing authentication: {e}")
             self.close()
 
     def _parse_client_connection_request(self, data):
@@ -96,52 +96,42 @@ class Socks5Protocol(Protocol):
                 logger.debug("parse_client_connection_request:IPv6:unsupported")
                 self.remote_connection_failure()
         except ProtocolError as e:
-            logger.warning(f"{self._sock.fileno()}:Error parsing connection request: {e}")
+            logger.warning(f"{self.sockid()}:Error parsing connection request: {e}")
             self.close()
 
     def _make_client_connection_request(self, remote_addr, remote_port, hostname="UNKNOWN"):
-        try:
-            client_addr, client_port = self.peer_connection_parameters()
-            logger.debug(f"{self._sock.fileno()}:make_client_connection_request:hostname:{hostname}:addr:{remote_addr}:port:{remote_port}")
-            Socks5Protocol.conn_logger.info(f"Request:from:{client_addr}:{client_port}:to:hostname:{hostname}:{remote_addr}:{remote_port}")
-            self._remote_server_protocol = RemoteServerProtocol(self)
-            self._connector.create_client(
-                remote_addr, remote_port,
-                self._remote_server_protocol,
-                self.remote_connection_failure
-            )
-            self._data_received_handler = self._null_data_received_handler
-        except OSError as e:
-            logger.warning(f"{self._sock.fileno()}:make_client_connection_request:error:{e}")
+        client_addr, client_port = self.peer_connection_params()
+        logger.debug(f"{self.sockid()}:make_client_connection_request:hostname:{hostname}:addr:{remote_addr}:port:{remote_port}")
+        Socks5Protocol.conn_logger.info(f"Request:from:{client_addr}:{client_port}:to:hostname:{hostname}:{remote_addr}:{remote_port}")
+        self._remote_server_protocol = RemoteServerProtocol(self)
+        self._connector.create_client(
+            remote_addr, remote_port,
+            self._remote_server_protocol,
+            self.remote_connection_failure
+        )
+        self._data_received_handler = self._null_data_received_handler
 
     def remote_connection_failure(self):
         # Get here via a failure of remote connection.
         # Need to return failure condition and close
-        logger.debug(f"{self._sock_id()}:remote_connection_failure")
-        try:
-            addr, port = self.local_connection_parameters()
-            self.write(Socks5.connection_failure(addr, port))
-        except ProtocolError:
-            pass
+        logger.debug(f"{self.sockid()}:remote_connection_failure")
+        addr, port = self.local_connection_params()
+        self.write(Socks5.connection_failure(addr, port))
         self.closing()
 
     def remote_connection_success(self):
         # Remote connection has started - we can now proxy data
-        logger.debug(f"{self._sock_id()}:remote_connection_success")
-        try:
-            addr, port = self.local_connection_parameters()
-            self.write(Socks5.connection_success(addr, port))
-            self._data_received_handler = self._proxy_data
-        except ProtocolError as e:
-            logger.debug("Error connecting protocol: {e}")
-            self.closing()
+        logger.debug(f"{self.sockid()}:remote_connection_success")
+        addr, port = self.local_connection_params()
+        self.write(Socks5.connection_success(addr, port))
+        self._data_received_handler = self._proxy_data
 
     def _null_data_received_handler(self, data):
         # This should never be called as we should only be in this state when
         # we are waiting for the remote connection to be created.
         # The socks client should not send any data on this connection in this period.
         # We may need to buffer the data without writing it if the socks client is aggressive though
-        logger.debug(f"{self._sock.fileno()}:null_data_received_handler")
+        logger.debug(f"{self.sockid()}:null_data_received_handler")
         self.close()
 
     def _proxy_data(self, data):
